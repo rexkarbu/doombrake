@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">DoomBrake</string>
+    <string name="accessibility_service_description">Mendeteksi aktivitas scrolling Instagram Reels dan TikTok secara real-time untuk mencegah doomscrolling.</string>
+</resources>

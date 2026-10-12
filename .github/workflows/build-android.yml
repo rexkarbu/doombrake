@@ -1,0 +1,108 @@
+name: Build & Release Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Node Dependencies & Build Web Assets
+        run: |
+          npm ci || npm install
+          npm run build
+
+      - name: Set up Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Generate Release Keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore android/app/doombrake-release.keystore \
+            -alias doombrake \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass doombrake123 \
+            -keypass doombrake123 \
+            -dname "CN=DoomBrake Team, OU=Mobile, O=DoomBrake, L=Jakarta, ST=DKI, C=ID"
+
+          cat <<EOF > android/keystore.properties
+          storeFile=doombrake-release.keystore
+          storePassword=doombrake123
+          keyAlias=doombrake
+          keyPassword=doombrake123
+          EOF
+
+      - name: Make Gradlew Executable
+        run: chmod +x android/gradlew
+
+      - name: Build Android APK (Debug & Release)
+        run: |
+          cd android
+          ./gradlew assembleRelease assembleDebug --stacktrace
+
+      - name: Copy & Rename APKs
+        run: |
+          mkdir -p release-apks
+          cp android/app/build/outputs/apk/release/*.apk release-apks/DoomBrake-Release.apk || true
+          cp android/app/build/outputs/apk/debug/*.apk release-apks/DoomBrake-Debug.apk || true
+          ls -la release-apks/
+
+      - name: Upload APK Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: DoomBrake-APKs
+          path: release-apks/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v1.0.0' }}
+          name: DoomBrake v1.0.0 - Android Release
+          body: |
+            ## 🛑 DoomBrake v1.0.0 - Real-Time Doomscrolling Limiter
+
+            Aplikasi pengukur dan pengontrol waktu *doomscrolling* dengan fitur pelacak jumlah video pendek di **Instagram Reels** dan **TikTok**.
+
+            ### 📱 Fitur Utama:
+            - **Deteksi Scroll Real-Time**: Menandai dan menghitung jumlah video pendek yang sudah di-scroll (`🎬 #1`, `🎬 #2`, dst).
+            - **Floating Timer Pill**: Widget melayang selalu di atas layar (*always-on-top draggable overlay*).
+            - **Sistem Interupsi Bertingkat**:
+              - *Level 1 (Soft Nudge)*: Banner berdenyut kuning saat mencapai ambang batas 15 menit.
+              - *Level 2 (Hard Friction Lock)*: Fullscreen takeover modal dengan timer jeda friksi 3 detik saat mencapai 30 menit.
+            - **Analytics Dashboard**: Grafik riwayat 7 hari, total waktu terselamatkan, dan pacing detik per video.
+            - **Simulator Interaktif Web**: Tersedia di [https://reel-lilac.vercel.app](https://reel-lilac.vercel.app)
+
+            ---
+            ### 📥 Download Android APK:
+            Unduh file `DoomBrake-Release.apk` di bawah ini dan pasang di smartphone Android Anda.
+            *(Pastikan mengaktifkan izin "Install from unknown sources" dan izin "Accessibility Service" di Pengaturan HP Anda).*
+          files: release-apks/*.apk
+          draft: false
+          prerelease: false
