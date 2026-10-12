@@ -1,0 +1,76 @@
+name: Build & Release Android APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies & Build Web
+        run: |
+          npm ci || npm install
+          npm run build
+
+      - name: Set up Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Generate Release Keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore android/app/doombrake-release.keystore \
+            -alias doombrake \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass doombrake123 \
+            -keypass doombrake123 \
+            -dname "CN=DoomBrake Team, OU=Mobile, O=DoomBrake, L=Jakarta, ST=DKI, C=ID"
+
+          cat <<EOF > android/keystore.properties
+          storeFile=doombrake-release.keystore
+          storePassword=doombrake123
+          keyAlias=doombrake
+          keyPassword=doombrake123
+          EOF
+
+      - name: Make Gradlew Executable
+        run: chmod +x android/gradlew
+
+      - name: Build Android APK
+        run: |
+          cd android
+          ./gradlew assembleRelease --stacktrace
+
+      - name: Copy & Rename APK
+        run: |
+          mkdir -p release-apks
+          cp android/app/build/outputs/apk/release/*.apk release-apks/DoomBrake-Release.apk || true
+
+      - name: Attach APK to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0
+          files: release-apks/DoomBrake-Release.apk
